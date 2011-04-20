@@ -262,7 +262,7 @@ Maptimize.AddressChooser.Widget.prototype = (function() {
    **/
   function initMap(zoom) {
     if (this.lat.value && this.lng.value) {
-      this.mapProxy.showMarker(this.lat.value, this.lng.value, zoom || 5, 
+      this.mapProxy.showMarker(new google.maps.LatLng(this.lat.value, this.lng.value), zoom || 5, 
                                this.options.showAddressOnMap ? this.getCurrentAddress().join('<br/>') : false , _markerDragEnd, this)
     }
     else {

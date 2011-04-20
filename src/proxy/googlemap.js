@@ -34,20 +34,24 @@ Maptimize.Proxy.GoogleMap = function(element, callback, context) {
   var self = this;
   
   function createMap() {
-    self.map = new GMap2(element);
-    self.map.setCenter(new GLatLng(47, 1), 1);
+    self.options = {
+      zoom: 1,
+      center: new google.maps.LatLng(47, 1),
+      mapTypeId: google.maps.MapTypeId.ROADMAP
+    }
+    self.map = new google.maps.Map(element, self.options);
     
-    self.geocoder = new GClientGeocoder;
+    self.geocoder = new google.maps.Geocoder;
     callback.call(context, self.map);
   }
  
   // Google Map is not loaded
-  if (typeof GMap2 == 'undefined') {
+  if (typeof google == 'undefined' || typeof(google.maps) == 'undefined') {
     if (typeof google == 'undefined') {
-      throw 'Not Google Map object found, check if you have include Google Map javascript'
+      throw 'Not Google Map object found, check if you have include Google Loader javascript'
     }
     else {
-      google.load('maps', 2);
+      google.load('maps', 3, {other_params: 'sensor=false'});
       google.setOnLoadCallback(createMap);
     }
   }
@@ -70,7 +74,9 @@ Maptimize.Proxy.GoogleMap.prototype = (function() {
    *  Returns a handle that can be used to eventually deregister the handler.
    **/
   function addEventListener(source, event, object, method) {
-    return GEvent.bindDom(source, event, object, method);
+    return google.maps.event.addDomListener(source, event, function() {
+      return method.apply(object, arguments)
+    });
   }
   
   /** 
@@ -80,7 +86,7 @@ Maptimize.Proxy.GoogleMap.prototype = (function() {
    *  Removes a handler that was installed by addEventListener.
    **/
   function removeEventListener(handle) {
-    GEvent.removeListener(handle);
+    google.maps.event.removeListener(handle);
   }
  
  
@@ -93,7 +99,7 @@ Maptimize.Proxy.GoogleMap.prototype = (function() {
    *  All remaining optional arguments after event are passed in turn as arguments to the event handler functions.
    **/
   function trigger() {
-    GEvent.trigger.apply(this, arguments);
+    google.maps.event.trigger.apply(this, arguments);
   }
   
   /**  
@@ -106,8 +112,8 @@ Maptimize.Proxy.GoogleMap.prototype = (function() {
    *  after receiving Google Map response.
    **/
   function getPlacemarks(address, callback, context) {
-    this.geocoder.getLocations(address.join(', '), 
-                               function(response){ _onGeocodingCompleted(response, callback, context)});
+    this.geocoder.geocode({address: address.join(', ')}, 
+                               function(response, status){ _onGeocodingCompleted(response, status, callback, context)});
   }
    
   /** 
@@ -176,7 +182,7 @@ Maptimize.Proxy.GoogleMap.prototype = (function() {
    *  Returns latitude of a placemark.
    **/
   function getLat(placemark) {
-    return placemark.Point.coordinates[1];
+    return placemark.geometry.location.lat();
   }
    
   /** 
@@ -186,7 +192,7 @@ Maptimize.Proxy.GoogleMap.prototype = (function() {
    *  Returns longitude of a placemark.
    **/
   function getLng(placemark) {
-    return placemark.Point.coordinates[0];
+    return placemark.geometry.location.lng();;
   }
    
   /** 
@@ -209,16 +215,15 @@ Maptimize.Proxy.GoogleMap.prototype = (function() {
    *  Displays placemark on the map.
    **/
   function showPlacemark(placemark, showAddress, callback, context) {
-    var accuracy = placemark.AddressDetails.Accuracy,
-        address  = showAddress ? placemark.address.split(',').join('<br/>') : false,
+    var location_type = placemark.geometry.location_type,
+        address  = showAddress ? placemark.formatted_address.split(',').join('<br/>') : false,
         zoom = 1;
-    if      (accuracy >= 9)  zoom = 17;
-    else if (accuracy >= 6 ) zoom = 14;
-    else if (accuracy >= 4)  zoom = 12;
-    else if (accuracy >  1)  zoom = 6;
+    if      (location_type == google.maps.GeocoderLocationType.ROOFTOP)  zoom = 17;
+    else if (location_type >= google.maps.GeocoderLocationType.RANGE_INTERPOLATED ) zoom = 14;
+    else if (location_type >= google.maps.GeocoderLocationType.APPROXIMATE)  zoom = 12;
     else                     zoom = 3;
 
-    this.showMarker(placemark.Point.coordinates[1], placemark.Point.coordinates[0], zoom, address, callback, context)
+    this.showMarker(placemark.geometry.location, zoom, address, callback, context)
   }
   
   /** 
@@ -233,31 +238,30 @@ Maptimize.Proxy.GoogleMap.prototype = (function() {
    *  Displays placemark on the map and centers map on marker location.
    *  If an address is specified, marker will show this address in an info window
    **/
-  function showMarker(lat, lng, zoom, address, callback, context) {
-    var latLng = new GLatLng(lat, lng);
-    this.map.setCenter(latLng, zoom);
+  function showMarker(latLng, zoom, address, callback, context) {
+    this.map.setCenter(latLng);
+    this.map.setZoom(zoom)
     
     if (this.marker) {
-      this.marker.setLatLng(latLng);
-      this.marker.show();
+      this.marker.setPosition(latLng);
+      this.marker.setVisible(true);
     }
     else {
-      this.marker = new GMarker(latLng, {draggable: true, icon: this.icon});
-      GEvent.bind(this.marker, 'dragstart', this, _startMarkerDrag);
-      GEvent.bind(this.marker, 'dragend', this, _endMarkerDrag);
-      this.map.addOverlay(this.marker);
+      this.marker = new google.maps.Marker({position: latLng, map: this.map, draggable: true, icon: this.icon});
+      google.maps.event.bind(this.marker, 'dragstart', this, _startMarkerDrag);
+      google.maps.event.bind(this.marker, 'dragend', this, _endMarkerDrag);
     }
 
     this.draggableCallback = callback;
     this.draggableContext  = context;
     if (this.draggableCallback) {
-      this.marker.enableDragging();
+      this.marker.setDraggable(true);
     }
     else {
-      this.marker.disableDragging();
+      this.marker.setDraggable(false);
     }
-    if (address)
-      this.marker.openInfoWindowHtml(address);
+    // if (address)
+    //   this.marker.openInfoWindowHtml(address);
   }
   
   /** 
@@ -267,8 +271,8 @@ Maptimize.Proxy.GoogleMap.prototype = (function() {
    **/
   function hidePlacemark() {
     if (this.marker) {
-      this.marker.closeInfoWindow();
-      this.marker.hide();
+      // this.marker.closeInfoWindow();
+      this.marker.setVisible(false);
     }
   }
   
@@ -281,16 +285,17 @@ Maptimize.Proxy.GoogleMap.prototype = (function() {
   function centerOnClientLocation(zoom) {
     var clientLocation = google && google.loader ? google.loader.ClientLocation : null;
     if (clientLocation) {
-      this.map.setCenter(new GLatLng(clientLocation.latitude, clientLocation.longitude), zoom || 8);
+      this.map.setCenter(new google.maps.LatLng(clientLocation.latitude, clientLocation.longitude));
+      this.map.setZoom(zoom || 8)
     }
   }
   
   // Intern callback when geocoding has been done (should have placemarks)
-  function _onGeocodingCompleted(response, callback, context) {
+  function _onGeocodingCompleted(response, status, callback, context) {
     // Placemark(s) found
-    if (response.Status.code == 200) {
-      console.log(response.Placemark);
-      callback.call(context, response.Placemark);
+    console.log(status)
+    if (status == google.maps.GeocoderStatus.OK) {
+      callback.call(context, response);
     }
     // Placemark not found
     else {
@@ -300,12 +305,12 @@ Maptimize.Proxy.GoogleMap.prototype = (function() {
   
   // Intern callback when marker dragging starts (close info window)
   function _startMarkerDrag() {
-    this.marker.closeInfoWindow();
+    // this.marker.closeInfoWindow();
   }
   
   // Intern callback when marker dragging ends.
-  function _endMarkerDrag(latLng) {
-    this.draggableCallback.call(this.draggableContext,latLng.lat(), latLng.lng());
+  function _endMarkerDrag(position) {
+    this.draggableCallback.call(this.draggableContext,position.latLng.lat(), position.latLng.lng());
   }
 
   // Parses placemark object as Google do not provide any API for that.
